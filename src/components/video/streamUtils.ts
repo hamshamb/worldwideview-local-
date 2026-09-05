@@ -6,14 +6,18 @@
  * @module src/components/video
  */
 
+import { stripMediaTypePrefix } from "@/lib/media/taggedMedia";
+
 /**
  * Strips internal tagged-dispatch type-prefix markers (e.g. "video:", "image:", "url:")
  * that may still be present on raw props before reaching URL-consuming helpers.
+ *
+ * Delegates to the canonical parser so every network boundary strips markers
+ * identically. See `@/lib/media/taggedMedia`.
  * @param {string} url - The raw or prefixed URL.
  */
 export function cleanStreamUrl(url: string): string {
-    if (!url) return url;
-    return url.replace(/^(video|image|url):/, "").trim();
+    return stripMediaTypePrefix(url);
 }
 
 /**
@@ -119,6 +123,9 @@ export function getYouTubeEmbedUrl(url: string): string {
 export function getProxiedStreamUrl(url: string): string {
     if (!url) return url;
     const cleaned = cleanStreamUrl(url);
+    // A contradictory tagged value (e.g. "video:image:...") yields nothing usable.
+    // Return no URL rather than proxying an empty parameter.
+    if (!cleaned) return "";
     // Always proxy to bypass CORS restrictions from camera providers!
     return `/api/camera/proxy/stream?url=${encodeURIComponent(cleaned)}`;
 }
@@ -131,6 +138,7 @@ export function getProxiedStreamUrl(url: string): string {
 export function getProxiedIframeUrl(url: string): string {
     if (!url) return url;
     const cleaned = cleanStreamUrl(url);
+    if (!cleaned) return "";
     return `/api/camera/proxy/iframe?url=${encodeURIComponent(cleaned)}`;
 }
 

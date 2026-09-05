@@ -135,4 +135,64 @@ describe("streamUtils", () => {
             expect(msg).toContain("Stream Failed");
         });
     });
+
+    // Issue #447: WWV media markers must never reach the proxy as a protocol.
+    describe("media-tag proxy boundary invariant (Issue #447)", () => {
+        const decodeUrlParam = (proxied: string): string => {
+            const match = proxied.match(/[?&]url=([^&]*)/);
+            expect(match, `no url param in ${proxied}`).not.toBeNull();
+            return decodeURIComponent(match![1]);
+        };
+
+        const TAGGED_VARIANTS = [
+            "video:http://cam.example/feed.mjpg",
+            "image:http://cam.example/snap.jpg",
+            "url:http://cam.example/live",
+            "VIDEO:http://cam.example/feed.mjpg",
+            "ViDeO:http://cam.example/feed.mjpg",
+            "  video:http://cam.example/feed.mjpg",
+            "video: http://cam.example/feed.mjpg",
+            "video:video:http://cam.example/feed.mjpg",
+        ];
+
+        it.each(TAGGED_VARIANTS)(
+            "getProxiedStreamUrl(%s) yields an http(s) url param with no marker",
+            (raw) => {
+                const decoded = decodeUrlParam(getProxiedStreamUrl(raw));
+                expect(decoded).toMatch(/^https?:\/\//);
+                expect(decoded).not.toMatch(/^(video|image|url):/i);
+            },
+        );
+
+        it.each(TAGGED_VARIANTS)(
+            "getProxiedIframeUrl(%s) yields an http(s) url param with no marker",
+            (raw) => {
+                const decoded = decodeUrlParam(getProxiedIframeUrl(raw));
+                expect(decoded).toMatch(/^https?:\/\//);
+                expect(decoded).not.toMatch(/^(video|image|url):/i);
+            },
+        );
+
+        it("does not launder a nested dangerous scheme into an http url", () => {
+            const decoded = decodeUrlParam(getProxiedStreamUrl("video:javascript:alert(1)"));
+            expect(decoded).toBe("javascript:alert(1)");
+            expect(decoded).not.toMatch(/^https?:\/\//);
+        });
+
+        it.each([
+            "video:image:http://cam.example/feed.mjpg",
+            "image:video:http://cam.example/feed.mjpg",
+            "url:video:https://cam.example/feed",
+        ])("returns no proxy URL for the contradictory value %s", (raw) => {
+            // Contradictory markers have no defensible interpretation, so the
+            // boundary fails closed rather than proxying a guessed URL.
+            expect(getProxiedStreamUrl(raw)).toBe("");
+            expect(getProxiedIframeUrl(raw)).toBe("");
+        });
+
+        it("leaves a marker occurring later in the path intact", () => {
+            const decoded = decodeUrlParam(getProxiedStreamUrl("http://cam.example/video:clip"));
+            expect(decoded).toBe("http://cam.example/video:clip");
+        });
+    });
 });
