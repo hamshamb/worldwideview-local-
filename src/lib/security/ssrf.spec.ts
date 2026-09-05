@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { mockUndiciF, mockDnsLookup } = vi.hoisted(() => ({
     mockUndiciF: vi.fn(),
@@ -51,6 +51,15 @@ describe("SSRF Protection Utility", () => {
             expect(validateOrigin("file:///etc/passwd")).toBe(false);
             expect(validateOrigin("data:text/html,<h1>xss</h1>")).toBe(false);
             expect(validateOrigin("javascript:alert(1)")).toBe(false);
+        });
+
+        it("should reject WWV internal media markers as protocols (Issue #447)", () => {
+            // These are render hints, not transports. If one reaches this layer the
+            // media boundary leaked; the fix belongs there, never here.
+            expect(validateOrigin("video:http://cam.example/feed")).toBe(false);
+            expect(validateOrigin("image:https://cam.example/snap.jpg")).toBe(false);
+            expect(validateOrigin("url:https://cam.example/live")).toBe(false);
+            expect(validateOrigin("VIDEO:http://cam.example/feed")).toBe(false);
         });
     });
 

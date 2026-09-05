@@ -13,6 +13,7 @@ import { LongTextProperty } from './LongTextProperty';
 import { IntelPropertyRow } from './IntelPropertyRow';
 import { DatetimePropertyRow } from "./DatetimePropertyRow";
 import { VideoProperty } from "./VideoProperty";
+import { parseTaggedMediaValue } from "@/lib/media/taggedMedia";
 
 /**
  * @interface DynamicPropertiesRenderProps
@@ -51,34 +52,60 @@ export function DynamicPropertiesRender({ entity, classNamePrefix = "intel-panel
                             />
                         );
                     }
-                    if (value.startsWith("url:")) {
+                    // Media markers (video:/image:/url:) go through the canonical
+                    // parser so this panel and the network boundary agree on what a
+                    // tagged value means.
+                    const tagged = parseTaggedMediaValue(value);
+
+                    // Contradictory markers (e.g. "video:image:") have no single
+                    // defensible meaning. Say so explicitly rather than guessing a
+                    // medium or silently degrading to plain text — and render no
+                    // element that would load the embedded URL.
+                    if (tagged.malformed) {
+                        return (
+                            <IntelPropertyRow
+                                key={key}
+                                label={label}
+                                classNamePrefix={classNamePrefix}
+                            >
+                                <span
+                                    data-testid="malformed-media-property"
+                                    title={tagged.raw}
+                                    style={{ color: "#f59e0b" }}
+                                >
+                                    {`Invalid source: conflicting media types (${tagged.tags.join(", ")})`}
+                                </span>
+                            </IntelPropertyRow>
+                        );
+                    }
+                    if (tagged.type === "url") {
                         return (
                             <UrlProperty
                                 key={key}
                                 label={label}
-                                url={value.slice(4)}
+                                url={tagged.url}
                                 classNamePrefix={classNamePrefix}
                             />
                         );
                     }
-                    if (value.startsWith("image:")) {
+                    if (tagged.type === "image") {
                         return (
                             <ImageProperty
                                 key={key}
                                 label={label}
-                                imageUrl={value.slice(6)}
+                                imageUrl={tagged.url}
                                 entityId={entity.id}
                                 entityLabel={entity.label ?? ""}
                                 classNamePrefix={classNamePrefix}
                             />
                         );
                     }
-                    if (value.startsWith("video:")) {
+                    if (tagged.type === "video") {
                         return (
                             <VideoProperty
                                 key={key}
                                 label={label}
-                                href={value.slice(6)}
+                                href={tagged.url}
                                 classNamePrefix={classNamePrefix}
                             />
                         );

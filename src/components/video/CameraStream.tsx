@@ -16,6 +16,7 @@ import { useStore } from "@/core/state/store";
 import { isHostAllowlisted } from "@/lib/security/hostAllowlist";
 import { PannableView } from "@/components/common/PannableView";
 import { HlsPlayer } from "./HlsPlayer";
+import { parseTaggedMediaValue } from "@/lib/media/taggedMedia";
 import {
  isHlsUrl, isKnownVideoPlatform, getYouTubeEmbedUrl, getStreamErrorMessage, getProxiedStreamUrl, getProxiedIframeUrl, cleanStreamUrl
 } from "./streamUtils";
@@ -58,11 +59,24 @@ export const CameraStream: React.FC<CameraStreamProps> = ({
     // on the first frame the browser cached.
     const [imgRefreshTick, setImgRefreshTick] = useState(0);
 
+    // Contradictory media markers (e.g. "video:image:http://...") have no single
+    // defensible interpretation. Such a source is rejected here, at the media
+    // boundary, so that no network-consuming element is ever rendered for it and
+    // no proxy request is constructed. safeFetch stays strict and untouched.
+    const taggedSource = parseTaggedMediaValue(streamUrl);
+    const taggedPreview = previewUrl ? parseTaggedMediaValue(previewUrl) : null;
+    const sourceIsMalformed = taggedSource.malformed;
+    const previewIsMalformed = taggedPreview?.malformed ?? false;
+
     useEffect(() => {
-        const cleaned = cleanStreamUrl(streamUrl);
+        // A contradictory source resolves to nothing: it is never cleaned into a
+        // URL, never handed to the extractor, and never played.
+        const cleaned = sourceIsMalformed ? "" : cleanStreamUrl(streamUrl);
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsPlaying(false); setError(null); setIsLoading(false); setHlsFailed(false);
         setActiveStreamUrl(cleaned);
+
+        if (sourceIsMalformed) return;
 
         // Only hand balticlivecam URLs to the extractor when the *hostname*
         // itself is balticlivecam.com (or a subdomain of it). A raw substring
@@ -87,7 +101,7 @@ export const CameraStream: React.FC<CameraStreamProps> = ({
                     setIsLoading(false);
                 });
         }
-    }, [streamUrl]);
+    }, [streamUrl, sourceIsMalformed]);
 
     const handlePopOut = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -229,6 +243,33 @@ label: label || "Camera Stream",
       </button>
     );
 
+    // A contradictory source is rejected before any playback affordance exists:
+    // no play button, no preview, no <img>/<iframe>/HLS player, no proxy URL.
+    // Rendering an empty src would still be a network path — browsers resolve
+    // src="" against the current document — so this returns its own UI instead.
+    if (sourceIsMalformed) {
+        return (
+          <div
+            className={className}
+            data-testid="camera-stream-malformed"
+            style={{
+ position: "relative", width: "100%", aspectRatio: "16/9", backgroundColor: "#050505", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px", textAlign: "center"
+}}
+          >
+            <AlertCircle style={{
+ color: "#f59e0b", width: "24px", height: "24px", marginBottom: "8px"
+}}
+            />
+            <p style={{
+ fontSize: "10px", color: "rgba(255,255,255,0.7)", maxWidth: "220px", lineHeight: "1.5"
+}}
+            >
+              {`Invalid source: conflicting media types (${taggedSource.tags.join(", ")}). This source was not loaded.`}
+            </p>
+          </div>
+        );
+    }
+
     return (
       <div
         className={className}
@@ -243,7 +284,7 @@ label: label || "Camera Stream",
 }}
             onClick={handlePlay}
           >
-            {previewUrl && (
+            {previewUrl && !previewIsMalformed && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={getProxiedStreamUrl(previewUrl)}
